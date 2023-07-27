@@ -10,135 +10,108 @@ require(ggplot2)
 require(MASS)
 require(Hmisc)
 require(reshape2)
+library(forcats)#work with factor variables-> change the reference for each variable
 ```
 # Clean data
 ## Load data
 ```{r}
-dat <- readxl::read_xlsx("~/Downloads/Yi_roe_data.xlsx")
+dat <- readxl::read_xlsx("/Volumes/manhnd/Yi_roe_data.xlsx")
 # filter variables for analyis
-dat <- dat%>%select("serialno", "country", "papm", "gender", "age", "education", "marital", "occupation", "live_area", "mobile", "internet")
+dat <- dat %>% dplyr::select("serialno", "country", "papm", "gender", "age", "education", "marital", "occupation", "live_area", "mobile", "internet")
 ```
 ## Transform data
 ```{r}
-#Adjust the values: 
-dat1 <- dat%>%mutate(gender = recode(gender, `4` = 3),
-                     marital = recode(marital, `4` = 3, `5` = 3))
+# Adjust the values:
+dat1 <- dat %>%
+  mutate(
+    gender = recode(gender, `4` = 3),
+    marital = recode(marital, `4` = 3, `5` = 3)
+  ) %>%
+  mutate(age_class = as.character(cut(age,
+    c(18, 25, 40, 60, Inf),
+    c("[18:24]", "[25:39]", "[40:59]", ">60"),
+    right = FALSE
+  )))
 
+#Transform the valuables 
+dat1 <- dat1 %>%
+  mutate(
+    papm = factor(papm),
+    gender = factor(gender, labels = c("Male", "Female", "Others")),
+    age_class = factor(age_class),
+    marital = factor(marital, labels = c("Never married", "Married/living with a partner", "Separated/widowed/divorced")),
+    education = factor(education, labels = c("No formal education", "Primary school", "Secondary school", "Diploma", "Degree")),
+    occupation = factor(occupation, labels = c("Employed", "Unemployed", "Student", "Retiree", "Homemaker")),
+    live_area = factor(live_area, labels = c("Urban", "Peri-urban", "Rural", "Slums")),
+    mobile = factor(mobile, labels = c("No", "Yes feature phone", "Yes smart phone")),
+    internet = factor(internet, labels = c("No", "Yes")),
+    country = factor(country)
+  )
 
-
-dat1 <- dat1%>%
-  mutate(papm = factor(papm), 
-                     gender = factor(gender, labels = c("Male", "Female", "Others")),
-                     marital = factor(marital, labels = c("Never married", "Married/living with a partner", "Separated/widowed/divorced")),
-                     education =factor(education, labels = c("No formal education", "Primary school", "Secondary school", "Diploma", "Degree")),
-                     occupation = factor(occupation, labels = c("Employed", "Unemployed", "Student", "Retiree", "Homemaker")),
-                     live_area = factor(live_area, labels = c("Urban", "Peri-urban", "Rural", "Slums")),
-                     mobile = factor(mobile, labels = c("No", "Yes feature phone", "Yes smart phone")),
-                     internet = factor(internet, labels = c("No", "Yes")), 
-                     country = factor(country))
-  
 summary(dat1)
 str(dat1)
-
 ```
 ## Visualize some variables
 ### papm versus countries
 ```{r}
-dat2 <- dat1%>%
-  select("country", "papm")%>%
-  group_by(country, papm)%>%
-  summarise(n = n())%>%
-  mutate(proportion_papm=n/sum(n))%>%
+dat2 <- dat1 %>%
+  select("country", "papm") %>%
+  group_by(country, papm) %>%
+  summarise(n = n()) %>%
+  mutate(proportion_papm = n / sum(n)) %>%
   ungroup()
 
-ggplot(data = dat2, aes(x = country, y = proportion_papm))+
-  geom_col(width = 0.5)+
-  facet_grid(~papm) + coord_flip()
+ggplot(data = dat2, aes(x = country, y = proportion_papm)) +
+  geom_col(width = 0.5) +
+  facet_grid(~papm) +
+  coord_flip()
 ```
 ### Education versus countries
 ```{r}
-dat2 <- dat%>%
-  select("country", "education")%>%
-  group_by(country, education)%>%
-  summarise(n = n())%>%
-  mutate(proportion_education=n/sum(n))%>%
+dat2 <- dat %>%
+  select("country", "education") %>%
+  group_by(country, education) %>%
+  summarise(n = n()) %>%
+  mutate(proportion_education = n / sum(n)) %>%
   ungroup()
 
-ggplot(data = dat2, aes(x = country, y = proportion_education))+
-  geom_col(width = 0.5)+
-  facet_grid(~education) + coord_flip()
+ggplot(data = dat2, aes(x = country, y = proportion_education)) +
+  geom_col(width = 0.5) +
+  facet_grid(~education) +
+  coord_flip()
 ```
 
-
+# Apply model
+## Fit the model without country interaction
 ```{r}
-m1 <- polr(formula = papm ~ gender + age + education + marital + occupation + live_area + mobile + internet, data = dat1, Hess = TRUE)
+m1 <- polr(formula = papm ~ country + gender + age_class + fct_rev(education) + marital + occupation + live_area + mobile + internet, data = dat1, Hess = TRUE)
 
-summary(m1)
 ctable <- coef(summary(m1))
+# Get the P value
 p <- pnorm(abs(ctable[, "t value"]), lower.tail = FALSE) * 2
-
 ctable <- cbind(ctable, "p value" = round(p, 4))
-ctable <- as.data.frame(ctable)%>%mutate(Predictors = rownames(ctable))
-ci <- as.data.frame(confint(m1))
-ci <- ci%>%mutate(Predictors = rownames(ci))
-ctable <- left_join(ctable, ci)
-result1 <- ctable%>%select("Predictors", "Value", "2.5 %", "97.5 %", "p value")
-writexl::write_xlsx(result1, "~/Downloads/20230425tmp1.xlsx")
+ctable <- as.data.frame(ctable)%>%mutate(predictors = row.names(ctable))
 
+ci <- confint(m1)
+exp <- as.data.frame(exp(cbind(OR = coef(m1), ci)))%>%mutate(predictors = row.names(ci))
+
+result <- left_join(ctable, exp)
 ```
+## Fit the model country interaction
 ```{r}
-m2 <- polr(formula = papm ~ country + gender + age + education + marital + occupation + live_area + mobile + internet, data = dat1, Hess = TRUE)
+m2 <- polr(formula = papm ~ country + gender + age_class + education + marital + occupation + live_area + mobile + internet + gender:country + age:country + marital:country + occupation:country + mobile:country + internet:country + education:country, data = dat1, Hess = TRUE)
 
-summary(m2)
-ctable <- coef(summary(m2))
-p <- pnorm(abs(ctable[, "t value"]), lower.tail = FALSE) * 2
-
-ctable <- cbind(ctable, "p value" = round(p, 4))
-ctable <- as.data.frame(ctable)%>%mutate(Predictors = rownames(ctable))
-ci <- as.data.frame(confint(m2))
-ci <- ci%>%mutate(Predictors = rownames(ci))
-
-ctable <- left_join(ctable, ci)
-result2 <- ctable%>%select("Predictors", "Value", "2.5 %", "97.5 %", "p value")
-writexl::write_xlsx(result2, "~/Downloads/20230425tmp2.xlsx")
-
+anova(m1, m2, test = "Chisq")
+#Model with country interaction is better
 ```
+
+### Fit model for individual country
 ```{r}
+m3 <- polr(formula = papm ~ country + gender + age_class + fct_rev(education) + marital + occupation + live_area + mobile + internet, data = dat1%>%filter(country == "Cameroon"), Hess = TRUE)
 
-dat1 <- dat%>%mutate(gender = recode(gender, `4` = 3),
-                     marital = recode(marital, `4` = 3, `5` = 3))
+with(dat1%>%filter(country == "Cameroon"),table(education,papm))
 
 
-
-dat1 <- dat1%>% 
-  filter(country != "Kenya")%>%
-  mutate(papm = factor(papm), 
-                     gender = factor(gender, labels = c("Male", "Female", "Others")),
-                     marital = factor(marital, labels = c("Never married", "Married/living with a partner", "Separated/widowed/divorced")),
-                     occupation = factor(occupation, labels = c("Employed", "Unemployed", "Student", "Retiree", "Homemaker")),
-                     live_area = factor(live_area, labels = c("Urban", "Peri-urban", "Rural", "Slums")),
-                     mobile = factor(mobile, labels = c("No", "Yes feature phone", "Yes smart phone")),
-                     internet = factor(internet, labels = c("No", "Yes")), 
-                     country = factor(country))
-  
-summary(dat1)
-m3 <- polr(formula = papm ~ gender + age + education + marital + occupation + live_area + mobile + internet, data = dat1, Hess = TRUE)
-
-summary(m3)
-ctable <- coef(summary(m3))
-p <- pnorm(abs(ctable[, "t value"]), lower.tail = FALSE) * 2
-
-ctable <- cbind(ctable, "p value" = round(p, 4))
-ctable <- as.data.frame(ctable)%>%mutate(Predictors = rownames(ctable))
-ci <- as.data.frame(confint(m3))
-ci <- ci%>%mutate(Predictors = rownames(ci))
-
-ctable <- left_join(ctable, ci)
-result3 <- ctable%>%select("Predictors", "Value", "2.5 %", "97.5 %", "p value")
-str(dat1)
+confint(m3)
+coef(m3)
 ```
-
-
-
-
-

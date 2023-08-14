@@ -10,10 +10,12 @@ require(ggplot2)
 require(MASS)
 require(Hmisc)
 require(reshape2)
-library(forcats)#work with factor variables-> change the reference for each variable
+library(forcats)
 library(effects)
-library(splines) 
+library(splines)
 library(car)
+library(VGAM)
+library(foreign)
 ```
 # Clean data
 ## Load data
@@ -21,24 +23,19 @@ library(car)
 dat <- readxl::read_xlsx("/Volumes/manhnd/Yi_roe_data.xlsx")
 # filter variables for analyis
 dat <- dat %>% dplyr::select("serialno", "country", "papm", "gender", "age", "education", "marital", "occupation", "live_area", "mobile", "internet")
-
-
-
 ```
 ## Transform data
 ```{r}
-# Adjust the values:
+# Remove the gender as others (18/2912)
 dat1 <- dat %>%
-  mutate(
-    gender = dplyr::recode(gender, `4` = 3),
-    marital = dplyr::recode(marital, `4` = 3, `5` = 3)
-  ) 
+  filter(gender != 3 & gender != 4) %>%
+  mutate(marital = dplyr::recode(marital, `4` = 3, `5` = 3))
 
-#Transform the valuables 
+# Transform the valuables
 dat1 <- dat1 %>%
   mutate(
-    papm = factor(papm),
-    gender = factor(gender, labels = c("Male", "Female", "Others")),
+    papm = factor(papm, ordered = TRUE),
+    gender = factor(gender, labels = c("Male", "Female")),
     marital = factor(marital, labels = c("Never married", "Married/living with a partner", "Separated/widowed/divorced")),
     education = factor(education, labels = c("No formal education", "Primary school", "Secondary school", "Diploma", "Degree")),
     occupation = factor(occupation, labels = c("Employed", "Unemployed", "Student", "Retiree", "Homemaker")),
@@ -81,8 +78,8 @@ ggplot(data = dat2, aes(x = country, y = proportion_education)) +
   coord_flip()
 ```
 
-# Apply model
-## Fit the model without country interaction
+# MASS package: polr modell
+## Fit the modell without country interaction
 ```{r}
 m1 <- polr(formula = papm ~ country + gender + age + education + marital + occupation + live_area + mobile + internet, data = dat1, Hess = TRUE)
 
@@ -92,36 +89,39 @@ ctable <- coef(summary(m1))
 # Get the P value
 p <- pnorm(abs(ctable[, "t value"]), lower.tail = FALSE) * 2
 ctable <- cbind(ctable, "p value" = round(p, 4))
-ctable <- as.data.frame(ctable)%>%mutate(predictors = row.names(ctable))
+ctable <- as.data.frame(ctable) %>% mutate(predictors = row.names(ctable))
 
 ci <- confint(m1)
-exp <- as.data.frame(exp(cbind(OR = coef(m1), ci)))%>%mutate(predictors = row.names(ci))
+exp <- as.data.frame(exp(cbind(OR = coef(m1), ci))) %>% mutate(predictors = row.names(ci))
 
 result <- left_join(ctable, exp)
 pr <- profile(m1)
 pairs(pr)
 
 tmp <- cbind(dat1, predict(m1, dat1, type = "probs"))
-lnewdat <- melt(tmp, id.vars = c("country", "gender" ,"age_class" ,"education", "marital", "occupation", "live_area" , "mobile", "internet"),
-  variable.name = "Level", value.name="Probability")
+lnewdat <- melt(tmp,
+  id.vars = c("country", "gender", "age_class", "education", "marital", "occupation", "live_area", "mobile", "internet"),
+  variable.name = "Level", value.name = "Probability"
+)
 ggplot(lnewdat, aes(x = gpa, y = Probability, colour = Level)) +
-  geom_line() + facet_grid(pared ~ public, labeller="label_both")
+  geom_line() +
+  facet_grid(pared ~ public, labeller = "label_both")
 ```
 ## Fit the model with country interaction
 ```{r}
-#First I fit the model with interaction between country and all of the independent variables but the model cannot run. Then I removed the interaction between live_area and country, model can run as below
+# First fit the model with interaction between country and all of the independent variables but the model cannot run. Then I removed the interaction between live_area and country, model can run as below
 m2 <- polr(formula = papm ~ country + gender + age + education + marital + occupation + live_area + mobile + internet + gender:country + age:country + marital:country + occupation:country + mobile:country + internet:country + education:country, data = dat1, Hess = TRUE)
 
 summary(m2)
 # compare with model 1
 anova(m1, m2, test = "Chisq")
 Anova(m2)
-# m2 is beter than m1. I tested with Anova() in the car package but failed. I also tried removed interaction between education and country but still didn't work. So I removed more interaction between gender and country. 
+# m2 is beter than m1. I tested with Anova() in the car package but failed. I also tried removed interaction between education and country but still didn't work. So I removed more interaction between gender and country.
 
 m3 <- polr(formula = papm ~ country + gender + age_class + education + marital + occupation + live_area + mobile + internet + age_class:country + marital:country + occupation:country + mobile:country + internet:country, data = dat1, Hess = TRUE)
 
-anova(m2, m3, test = "Chisq") 
-# But m2 still beter than m3 
+anova(m2, m3, test = "Chisq")
+# But m2 still beter than m3
 
 ctable <- coef(summary(m3))
 # Get the P value
@@ -131,145 +131,251 @@ ctable <- cbind(ctable, "p value" = round(p, 4))
 confint(m3)
 Anova(m3)
 
-plot(Effect(focal.predictors = c("age_class","country"), mod = m3), rug = FALSE)
-#Model with country interaction is better
+plot(Effect(focal.predictors = c("age_class", "country"), mod = m3), rug = FALSE)
+# Model with country interaction is better
 ```
+
 ## Testing the proportional odds assumption
+https://peopleanalytics-regression-book.org/ord-reg.html:   ar
 ```{r}
-dat_test1 <- dat1%>%mutate(test1 = ifelse(papm == "1", 0, 1),
-                           test2= ifelse(papm == "1"|papm=="2", 0, 1),
-                           test3= ifelse(papm == "1"|papm=="2"|papm=="3", 0, 1),
-                           test4= ifelse(papm == "1"|papm=="2"|papm=="3"|papm=="4", 0, 1))
+dat_test1 <- dat1 %>% mutate(
+  test1 = ifelse(papm == "1", 0, 1),
+  test2 = ifelse(papm == "1" | papm == "2", 0, 1),
+  test3 = ifelse(papm == "1" | papm == "2" | papm == "3", 0, 1),
+  test4 = ifelse(papm == "1" | papm == "2" | papm == "3" | papm == "4", 0, 1)
+)
 table(dat_test1$papm)
-m1 <-glm(test1 ~ gender + age + education + marital + occupation + live_area + mobile + internet , 
-         data = dat_test1%>%filter(country == "Bangladesh"), 
-         family = "binomial"
+m1 <- glm(test1 ~ gender + age + education + marital + occupation + live_area + mobile + internet,
+  data = dat_test1 %>% filter(country == "Bangladesh"),
+  family = "binomial"
 )
 
 
-m2 <-glm(test2 ~ gender + age + education + marital + occupation + live_area + mobile + internet , 
-         data = dat_test1%>%filter(country == "Bangladesh"), 
-         family = "binomial")
+m2 <- glm(test2 ~ gender + age + education + marital + occupation + live_area + mobile + internet,
+  data = dat_test1 %>% filter(country == "Bangladesh"),
+  family = "binomial"
+)
 
-m3 <-glm(test3 ~ gender + age + education + marital + occupation + live_area + mobile + internet , 
-         data = dat_test1%>%filter(country == "Bangladesh"), 
-         family = "binomial")
+m3 <- glm(test3 ~ gender + age + education + marital + occupation + live_area + mobile + internet,
+  data = dat_test1 %>% filter(country == "Bangladesh"),
+  family = "binomial"
+)
 
 
-m4 <-glm(test4 ~ gender + age + education + marital + occupation + live_area + mobile + internet , 
-         data = dat_test1%>%filter(country == "Bangladesh"), 
-         family = "binomial")
+m4 <- glm(test4 ~ gender + age + education + marital + occupation + live_area + mobile + internet,
+  data = dat_test1 %>% filter(country == "Bangladesh"),
+  family = "binomial"
+)
 
 coefficient_comparison <- data.frame(
-  test1 = summary(m1)$coefficients[ , "Estimate"],
-  test2 = summary(m2)$coefficients[ ,"Estimate"],
-  test3 = summary(m3)$coefficients[ ,"Estimate"],
-  test4 = summary(m4)$coefficients[ ,"Estimate"],
-  diff1_2= summary(m2)$coefficients[ ,"Estimate"] - summary(m1)$coefficients[ ,"Estimate"],
-  diff1_3 = summary(m3)$coefficients[ ,"Estimate"] - summary(m1)$coefficients[ ,"Estimate"],
-  diff1_4 = summary(m4)$coefficients[ ,"Estimate"] - summary(m1)$coefficients[ ,"Estimate"])
+  test1 = summary(m1)$coefficients[, "Estimate"],
+  test2 = summary(m2)$coefficients[, "Estimate"],
+  test3 = summary(m3)$coefficients[, "Estimate"],
+  test4 = summary(m4)$coefficients[, "Estimate"],
+  diff1_2 = summary(m2)$coefficients[, "Estimate"] - summary(m1)$coefficients[, "Estimate"],
+  diff1_3 = summary(m3)$coefficients[, "Estimate"] - summary(m1)$coefficients[, "Estimate"],
+  diff1_4 = summary(m4)$coefficients[, "Estimate"] - summary(m1)$coefficients[, "Estimate"]
+)
 coefficient_comparison
-
 ```
 
-We could see there is a large difference coefficients. The assumption of proportional odds is violated. We need to use different method https://peopleanalytics-regression-book.org/ord-reg.html:  Agresti (2010)) are:
+We could see there is a large difference coefficients. The assumption of proportional odds is violated. We need to use different methods. The book recommend some other methods explain more details in Agresti (2010))
 
 - Baseline logistic model. This model is the same as the multinomial regression model covered in the previous chapter, using the lowest ordinal value as the reference.
 - Adjacent-category logistic model. This model compares each level of the ordinal variable to the next highest level, and it is a constrained version of the baseline logistic model. The brglm2 package in R offers a function bracl() for calculating an adjacent category logistic model.
 - Continuation-ratio logistic model. This model compares each level of the ordinal variable to all lower levels. This can be modeled using binary logistic regression techniques, but new variables need to be constructed from the data set to allow this. The R package rms has a function cr.setup() which is a utility for preparing an outcome variable for a continuation ratio model.
 
-## Fit model for individual country
+I still fit the model to individual country to see where the issues occur. When the absolute Value of the predictor is greater than 10, I make table for that independent variable and the outcome for that country.
+## Fit polr model for individual country
 ### Bangladesh
 ```{r}
-m4 <- polr(formula = papm ~ gender + age_class + education + marital + occupation + live_area + mobile + internet, data = dat1%>%filter(country == "Bangladesh"), Hess = TRUE)
+m4 <- polr(formula = papm ~ gender + age + education + marital + occupation + live_area + mobile + internet, data = dat1 %>% filter(country == "Bangladesh"), Hess = TRUE)
 
 summary(m4)
-with(dat1%>%filter(country == "Bangladesh"), table(education, papm))
-with(dat1%>%filter(country == "Bangladesh"), table(occupation, papm))
-with(dat1%>%filter(country == "Bangladesh"), table(mobile, papm))
-with(dat1%>%filter(country == "Bangladesh"), table(age_class, papm))
-```
 
+with(dat1 %>% filter(country == "Bangladesh"), table(education, papm))
+with(dat1 %>% filter(country == "Bangladesh"), table(occupation, papm))
+with(dat1 %>% filter(country == "Bangladesh"), table(mobile, papm))
+```
+### Nepal
 
 ```{r}
-m4 <- polr(formula = papm ~ gender + age_class + education + marital + occupation + live_area + mobile + internet, data = dat1%>%filter(country == "Nepal")%>%filter(gender != "Others"), Hess = TRUE)
+m4 <- polr(formula = papm ~ gender + age_class + education + marital + occupation + live_area + mobile + internet, data = dat1 %>% filter(country == "Nepal") %>% filter(gender != "Others"), Hess = TRUE)
 summary(m4)
-with(dat1%>%filter(country == "Nepal")%>%filter(gender != "Others"), table(gender, papm))
+with(dat1 %>% filter(country == "Nepal") %>% filter(gender != "Others"), table(gender, papm))
 ```
-
+### Cameroon
 
 ```{r}
-m4 <- polr(formula = papm ~ gender + age_class + education + marital + occupation + live_area + mobile + internet, data = dat1%>%filter(country == "Cameroon"), Hess = TRUE)
+m4 <- polr(formula = papm ~ gender + age_class + education + marital + occupation + live_area + mobile + internet, data = dat1 %>% filter(country == "Cameroon"), Hess = TRUE)
 summary(m4)
-with(dat1%>%filter(country == "Cameroon"), table(education, papm))
-with(dat1%>%filter(country == "Cameroon"), table(occupation, papm))
-with(dat1%>%filter(country == "Cameroon"), table(marital, papm))
-with(dat1%>%filter(country == "Bangladesh"), table(live_area, papm))
+with(dat1 %>% filter(country == "Cameroon"), table(education, papm))
+with(dat1 %>% filter(country == "Cameroon"), table(occupation, papm))
+with(dat1 %>% filter(country == "Cameroon"), table(marital, papm))
+with(dat1 %>% filter(country == "Bangladesh"), table(live_area, papm))
 ```
 
-
+### India
 ```{r}
-m4 <- polr(formula = papm ~ gender + age_class + education + marital + occupation + live_area + mobile + internet, data = dat1%>%filter(country == "India"), Hess = TRUE)
+m4 <- polr(formula = papm ~ gender + age + education + marital + occupation + live_area + mobile + internet, data = dat1 %>% filter(country == "India"), Hess = TRUE)
 summary(m4)
-with(dat1%>%filter(country == "India"), table(live_area, papm))
+with(dat1 %>% filter(country == "India"), table(live_area, papm))
 ```
 
-
+### Indonesia
 ```{r}
-m4 <- polr(formula = papm ~ gender + age_class + education + marital + occupation + live_area + mobile + internet, data = dat1%>%filter(country == "Indonesia"), Hess = TRUE)
+m4 <- polr(formula = papm ~ gender + age_class + education + marital + occupation + live_area + mobile + internet, data = dat1 %>% filter(country == "Indonesia"), Hess = TRUE)
 summary(m4)
-with(dat1%>%filter(country == "Indonesia"), table(gender, papm))
-with(dat1%>%filter(country == "Indonesia"), table(age_class, papm))
-with(dat1%>%filter(country == "Indonesia"), table(education, papm))
-with(dat1%>%filter(country == "Indonesia"), table(occupation, papm))
-with(dat1%>%filter(country == "Indonesia"), table(internet, papm))
+with(dat1 %>% filter(country == "Indonesia"), table(gender, papm))
+with(dat1 %>% filter(country == "Indonesia"), table(age_class, papm))
+with(dat1 %>% filter(country == "Indonesia"), table(education, papm))
+with(dat1 %>% filter(country == "Indonesia"), table(occupation, papm))
+with(dat1 %>% filter(country == "Indonesia"), table(internet, papm))
 ```
 
-
+### Philippines
 ```{r}
-m4 <- polr(formula = papm ~ gender + age_class + education + marital + occupation + live_area + mobile + internet, data = dat1%>%filter(country == "Philippines"), Hess = TRUE)
-summary(m4)
-confint(m4)
-```
-
-
-```{r}
-m4 <- polr(formula = papm ~ gender + age_class + education + marital + occupation + live_area + mobile + internet, data = dat1%>%filter(country == "Uganda"), Hess = TRUE)
+m4 <- polr(formula = papm ~ gender + age + education + marital + occupation + live_area + mobile + internet, data = dat1 %>% filter(country == "Philippines"), Hess = TRUE)
 summary(m4)
 confint(m4)
 ```
 
-
+### Uganda
 ```{r}
-m4 <- polr(formula = papm ~ gender + age_class + education + marital + occupation + live_area + mobile + internet, data = dat1%>%filter(country == "Zimbabwe"), Hess = TRUE)
-summary(m4)
-
-with(dat1%>%filter(country == "Zimbabwe"), table(gender, papm))
-with(dat1%>%filter(country == "Zimbabwe"), table(education, papm))
-with(dat1%>%filter(country == "Zimbabwe"), table(occupation, papm))
-```
-
-
-```{r}
-m4 <- polr(formula = papm ~ gender + age_class + education + marital + occupation + live_area + mobile + internet, data = dat1%>%filter(country == "Kenya"), Hess = TRUE)
-
+m4 <- polr(formula = papm ~ gender + age + education + marital + occupation + live_area + mobile + internet, data = dat1 %>% filter(country == "Uganda"), Hess = TRUE)
 summary(m4)
 confint(m4)
 ```
 
-
+### Zimbabwe
 ```{r}
-with(dat1%>%filter(country == "Cameroon"),table(education,papm))
+m4 <- polr(formula = papm ~ gender + age_class + education + marital + occupation + live_area + mobile + internet, data = dat1 %>% filter(country == "Zimbabwe"), Hess = TRUE)
+summary(m4)
 
-ctable <- coef(summary(m3))
-confint(m3)
-coef(m3)
-coef(m4)
-p <- pnorm(abs(ctable[, "t value"]), lower.tail = FALSE) * 2
-
-
-with((dat1), table(gender, papm))
-
+with(dat1 %>% filter(country == "Zimbabwe"), table(gender, papm))
+with(dat1 %>% filter(country == "Zimbabwe"), table(education, papm))
+with(dat1 %>% filter(country == "Zimbabwe"), table(occupation, papm))
 ```
 
-https://peopleanalytics-regression-book.org/ord-reg.html#sighting-the-coefficients-of-stratified-binomial-models
+### Kenya
+```{r}
+m4 <- polr(formula = papm ~ gender + age_class + education + marital + occupation + live_area + mobile + internet, data = dat1 %>% filter(country == "Kenya"), Hess = TRUE)
+
+summary(m4)
+```
+## Calculate the confident interval
+I use Wald test to obtain the CI because the likelihood ratio test doesn't work
+
+```{r}
+countryList <- c("Bangladesh", "Cameroon", "India", "Indonesia", "Kenya", "Nepal", "Philippines", "Uganda", "Zimbabwe")
+
+fun <- function(data, countryList) {
+  allData <- list()
+
+  for (ctry in countryList) {
+    m <- polr(formula = papm ~ gender + age + education + marital + occupation + live_area + mobile + internet, data = dat1 %>% filter(country == ctry), Hess = TRUE)
+
+    ci <- confint.default(m)
+
+    tmp <- as.data.frame(round(exp(cbind(OR = coef(m), ci)), 2)) %>%
+      mutate(
+        country = ctry,
+        predictor = row.names(m)
+      )
+
+    allData[[ctry]] <- tmp
+  }
+
+  combinedData <- do.call(rbind, allData)
+
+  return(combinedData)
+}
+
+
+tmp <- fun(dat1, countryList)
+```
+We can use anova() function to obtain the P value for each independent variable using likeli-hood ratio test
+
+
+# GAVM still not working
+## Generalized proportional odds
+
+```{r, message=FALSE, warning=FALSE}
+m7 <- vglm(
+  formula = papm ~ gender + age + education + marital + occupation + live_area + mobile + internet, data = dat1 %>% filter(country == "Bangladesh"),
+  family = cumulative(parallel = FALSE, reverse = FALSE)
+)
+```
+
+## Patial proportional odds
+```{r, message=FALSE, warning=FALSE}
+m7 <- vglm(
+  formula = papm ~ gender + age + education + marital + occupation + live_area + mobile + internet, data = dat1 %>% filter(country == "Bangladesh"),
+  family = cumulative(parallel = FALSE ~ 1 + education + occupation + mobile, reverse = FALSE)
+)
+```
+```{r}
+m7 <- vglm(
+  formula = papm ~ gender + age + education + marital + occupation + live_area + mobile + internet, data = dat1 %>% filter(country == "Cameroon"),
+  family = cumulative(parallel = TRUE, reverse = FALSE)
+)
+
+summary(m7)
+```
+```{r}
+m7 <- vglm(
+  formula = papm ~ gender + age + education + marital + occupation + live_area + mobile + internet, data = dat1 %>% filter(country == "India"),
+  family = cumulative(parallel = FALSE ~ live_area, reverse = TRUE)
+)
+
+summary(m7)
+```
+```{r}
+m7 <- vglm(
+  formula = papm ~ gender + age + education + marital + occupation + live_area + mobile + internet, data = dat1 %>% filter(country == "Indonesia"),
+  family = cumulative(parallel = FALSE ~ education + occupation, reverse = TRUE)
+)
+
+summary(m7)
+```
+`
+```{r}
+m7 <- vglm(
+  formula = papm ~ gender + age + education + marital + occupation + live_area + mobile + internet, data = dat1 %>% filter(country == "Kenya"),
+  family = cumulative(parallel = FALSE ~ education + occupation, reverse = TRUE)
+)
+
+summary(m7)
+```
+```{r}
+m7 <- vglm(
+  formula = papm ~ gender + age + education + marital + occupation + live_area + mobile + internet, data = dat1 %>% filter(country == "Nepal"),
+  family = cumulative(parallel = FALSE ~ education + occupation, reverse = TRUE)
+)
+
+summary(m7)
+```
+```{r}
+m7 <- vglm(
+  formula = papm ~ gender + age + education + marital + occupation + live_area + mobile + internet, data = dat1 %>% filter(country == "Philippines"),
+  family = cumulative(parallel = FALSE ~ education + occupation, reverse = TRUE)
+)
+
+summary(m7)
+```
+```{r}
+m7 <- vglm(
+  formula = papm ~ gender + age + education + marital + occupation + live_area + mobile + internet, data = dat1 %>% filter(country == "Uganda"),
+  family = cumulative(parallel = FALSE ~ education + occupation, reverse = TRUE)
+)
+
+summary(m7)
+```
+```{r}
+m7 <- vglm(
+  formula = papm ~ gender + age + education + marital + occupation + live_area + mobile + internet, data = dat1 %>% filter(country == "Zimbabwe"),
+  family = cumulative(parallel = FALSE ~ education + occupation, reverse = TRUE)
+)
+
+summary(m7)
+```

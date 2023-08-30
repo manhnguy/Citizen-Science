@@ -59,7 +59,7 @@ str(dat1)
 
 ## Visualize some variables
 ### papm versus countries
-```{r}
+```{r, fig.width = 10}
 # keep participant with gender as other
 # dat1 <- dat %>%
 #   mutate(gender = dplyr::recode(gender, `4` = 3)) %>%
@@ -126,7 +126,7 @@ ggplot(data = dat2, aes(x = country, y = proportion_education)) +
 # MASS package: polr modell
 ## Fit the modell without country interaction
 
-```{r}
+```{r echo=T, results='hide'}
 m1 <- polr(formula = papm ~ country + gender + age + education + marital + occupation + live_area + mobile + internet, data = dat1, Hess = TRUE)
 
 summary(m1)
@@ -134,7 +134,7 @@ summary(m1)
 
 ## Fit the model with country interaction
 
-```{r}
+```{r echo=T, results='hide'}
 # First fit the model with interaction between country and all of the independent variables but the model cannot run. Then I removed the interaction between live_area and country, model can run as below
 m2 <- polr(formula = papm ~ country + gender + age + education + marital + occupation + live_area + mobile + internet + gender:country + age:country + marital:country + occupation:country + mobile:country + internet:country + education:country, data = dat1, Hess = TRUE)
 
@@ -382,7 +382,7 @@ p8 <- ggplot(data = tmp2, aes(x = level, y = OR, colour = country)) +
 ```
 
 
-```{r, warning=FALSE}
+```{r, warning=FALSE, fig.width = 10, fig.height=7}
 (p1 + p2 + p3 + p4 + p5 + p6 + p7 + p8 +
   plot_layout(ncol = 4, guides = "collect"))
 ```
@@ -390,7 +390,7 @@ p8 <- ggplot(data = tmp2, aes(x = level, y = OR, colour = country)) +
 ## Obtain P value for each independent variable for individual country
 We can use anova() function to obtain the P value for each independent variable using likeli-hood ratio test
 
-```{r}
+```{r, warning= FALSE}
 func_obtainP <- function(data, countryList) {
   allData <- list()
 
@@ -448,5 +448,5 @@ tmp2 <- tmp1 %>%
   mutate(`Pr(Chi)` = NA)
 combine <- bind_rows(tmpP1, tmp2) %>%
   arrange(country, var)
-writexl::write_xlsx(combine, "~/Downloads/20230828tmp.xlsx")
+#writexl::write_xlsx(combine, "~/Downloads/20230828tmp.xlsx")
 ```

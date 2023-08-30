@@ -60,17 +60,52 @@ str(dat1)
 ## Visualize some variables
 ### papm versus countries
 ```{r}
+# keep participant with gender as other
+# dat1 <- dat %>%
+#   mutate(gender = dplyr::recode(gender, `4` = 3)) %>%
+#   mutate(marital = dplyr::recode(marital, `4` = 3, `5` = 3))
+#
+# # Transform the valuables
+# dat1 <- dat1 %>%
+#   mutate(
+#     papm = factor(papm, ordered = TRUE),
+#     gender = factor(gender, labels = c("Male", "Female", "Other")),
+#     marital = factor(marital, labels = c("Never married", "Married/living with a partner", "Separated/widowed/divorced")),
+#     education = factor(education, labels = c("No formal education", "Primary school", "Secondary school", "Diploma", "Degree")),
+#     occupation = factor(occupation, labels = c("Employed", "Unemployed", "Student", "Retiree", "Homemaker")),
+#     live_area = factor(live_area, labels = c("Urban", "Peri-urban", "Rural", "Slums")),
+#     mobile = factor(mobile, labels = c("No", "Yes feature phone", "Yes smart phone")),
+#     internet = factor(internet, labels = c("No", "Yes")),
+#     country = factor(country)
+#   ) %>%
+#   mutate(
+#     education = fct_relevel(education, "Degree", "Diploma", "Secondary school", "Primary school", "No formal education"),
+#     mobile = fct_relevel(mobile, "Yes smart phone", "Yes feature phone", "No")
+#   )
+
 dat2 <- dat1 %>%
   select("country", "papm") %>%
   group_by(country, papm) %>%
   summarise(n = n()) %>%
-  mutate(proportion_papm = n / sum(n)) %>%
-  ungroup()
+  mutate(proportion_papm = round(n / sum(n) * 100, 2)) %>%
+  ungroup() %>%
+  mutate(papm = factor(papm, labels = c(
+    "Unaware", "Aware but unengaged", "Aware, engaged, \nbut undecided",
+    "Aware, engaged, decided, \nbut yet to take action", "Aware, engaged, decided, \ntook action"
+  )))
 
-ggplot(data = dat2, aes(x = country, y = proportion_papm)) +
+max <- dat2 %>%
+  group_by(country) %>%
+  slice(which.max(proportion_papm))
+
+ggplot(data = dat2, aes(x = country, y = proportion_papm, fill = papm)) +
   geom_col(width = 0.5) +
+  geom_text(data = max, aes(label = proportion_papm)) +
   facet_grid(~papm) +
-  coord_flip()
+  coord_flip(ylim = c(0, 100)) +
+  scale_fill_brewer(direction = 1, palette = "YlOrRd") + # YlOrRd
+  labs(x = "Country", y = "Proportion (%)") +
+  theme(legend.position = "none")
 ```
 
 ### Education versus countries

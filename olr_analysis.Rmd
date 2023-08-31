@@ -2,6 +2,14 @@
 title: "temporary"
 output: html_document
 date: "2023-08-21"
+knit: |
+  (function(input, ...) {
+    rmarkdown::render(
+      input,
+      output_file =  'index.html',
+      envir = globalenv()
+    )
+  })
 ---
 
 ```{r setup, include=FALSE}
@@ -18,12 +26,13 @@ library(VGAM)
 library(foreign)
 library(plotly)
 library(patchwork)
+library(scales) # Disable Scientific Notation of ggplot2 Axis
 ```
 
 # Clean data
 ## Load data
 ```{r}
-dat <- readxl::read_xlsx("/Volumes/manhnd/Yi_roe_data.xlsx")
+dat <- readxl::read_xlsx("/Volumes/manhnd/olr_analysis/Yi_roe_data.xlsx")
 # filter variables for analyis
 dat <- dat %>% dplyr::select("serialno", "country", "papm", "gender", "age", "education", "marital", "occupation", "live_area", "mobile", "internet")
 ```
@@ -40,7 +49,7 @@ dat1 <- dat1 %>%
   mutate(
     papm = factor(papm, ordered = TRUE),
     gender = factor(gender, labels = c("Male", "Female")),
-    marital = factor(marital, labels = c("Never married", "Married/living with a partner", "Separated/widowed/divorced")),
+    marital = factor(marital, labels = c("Never married", "Married,\nliving with a partner", "Separated,\nwidowed,\ndivorced")),
     education = factor(education, labels = c("No formal education", "Primary school", "Secondary school", "Diploma", "Degree")),
     occupation = factor(occupation, labels = c("Employed", "Unemployed", "Student", "Retiree", "Homemaker")),
     live_area = factor(live_area, labels = c("Urban", "Peri-urban", "Rural", "Slums")),
@@ -49,7 +58,8 @@ dat1 <- dat1 %>%
     country = factor(country)
   ) %>%
   mutate(
-    education = fct_relevel(education, "Degree", "Diploma", "Secondary school", "Primary school", "No formal education")
+    education = fct_relevel(education, "Degree", "Diploma", "Secondary school", "Primary school", "No formal education"),
+    mobile = fct_relevel(mobile, "Yes smart phone", "Yes feature phone", "No")
   )
 
 
@@ -60,30 +70,7 @@ str(dat1)
 ## Visualize some variables
 ### papm versus countries
 ```{r, fig.width = 10}
-# keep participant with gender as other
-# dat1 <- dat %>%
-#   mutate(gender = dplyr::recode(gender, `4` = 3)) %>%
-#   mutate(marital = dplyr::recode(marital, `4` = 3, `5` = 3))
-#
-# # Transform the valuables
-# dat1 <- dat1 %>%
-#   mutate(
-#     papm = factor(papm, ordered = TRUE),
-#     gender = factor(gender, labels = c("Male", "Female", "Other")),
-#     marital = factor(marital, labels = c("Never married", "Married/living with a partner", "Separated/widowed/divorced")),
-#     education = factor(education, labels = c("No formal education", "Primary school", "Secondary school", "Diploma", "Degree")),
-#     occupation = factor(occupation, labels = c("Employed", "Unemployed", "Student", "Retiree", "Homemaker")),
-#     live_area = factor(live_area, labels = c("Urban", "Peri-urban", "Rural", "Slums")),
-#     mobile = factor(mobile, labels = c("No", "Yes feature phone", "Yes smart phone")),
-#     internet = factor(internet, labels = c("No", "Yes")),
-#     country = factor(country)
-#   ) %>%
-#   mutate(
-#     education = fct_relevel(education, "Degree", "Diploma", "Secondary school", "Primary school", "No formal education"),
-#     mobile = fct_relevel(mobile, "Yes smart phone", "Yes feature phone", "No")
-#   )
-
-dat2 <- dat1 %>%
+dat2 <- dat %>%
   select("country", "papm") %>%
   group_by(country, papm) %>%
   summarise(n = n()) %>%
@@ -222,9 +209,12 @@ tmp1 <- tmpCI %>%
   ))) %>%
   separate(var, c("var", "level"), "\\.") %>%
   mutate(
-    OR = ifelse(OR >= 1000, 0, OR),
-    `2.5 %` = ifelse(`2.5 %` >= 1000, 0, `2.5 %`),
-    `97.5 %` = ifelse(`97.5 %` >= 1000, 0, `97.5 %`)
+    OR = ifelse(OR >= 10000000, 150, OR),
+    OR = ifelse(OR >= 1000000, 100, OR),
+    `2.5 %` = ifelse(`2.5 %` >= 10000000, 150, `2.5 %`),
+    `2.5 %` = ifelse(`2.5 %` >= 1000000, 100, `2.5 %`),
+    `97.5 %` = ifelse(`97.5 %` >= 10000000, 150, `97.5 %`),
+    `97.5 %` = ifelse(`97.5 %` >= 1000000, 100, `97.5 %`)
   )
 ```
 ### Gender
@@ -316,7 +306,7 @@ p5 <- ggplot(data = tmp2, aes(x = level, y = OR, colour = country)) +
   geom_errorbar(aes(ymin = `2.5 %`, ymax = `97.5 %`), position = position_dodge(0.85), width = 1) +
   geom_point(size = 2, position = position_dodge(0.85)) +
   geom_vline(xintercept = seq(1.5, 3.5, by = 1), colour = "grey", linetype = "dashed") +
-  scale_y_continuous(trans = "log10") +
+  scale_y_continuous(trans = "log10", labels = label_comma()) +
   scale_colour_brewer(palette = "Set1") +
   labs(title = "Occupation-Employed", x = "") +
   theme(
@@ -382,7 +372,7 @@ p8 <- ggplot(data = tmp2, aes(x = level, y = OR, colour = country)) +
 ```
 
 
-```{r, warning=FALSE, fig.width = 10, fig.height=7}
+```{r, warning=FALSE, fig.width = 16, fig.height=8}
 (p1 + p2 + p3 + p4 + p5 + p6 + p7 + p8 +
   plot_layout(ncol = 4, guides = "collect"))
 ```
@@ -448,5 +438,5 @@ tmp2 <- tmp1 %>%
   mutate(`Pr(Chi)` = NA)
 combine <- bind_rows(tmpP1, tmp2) %>%
   arrange(country, var)
-#writexl::write_xlsx(combine, "~/Downloads/20230828tmp.xlsx")
+# writexl::write_xlsx(combine, "~/Downloads/20230828tmp.xlsx")
 ```

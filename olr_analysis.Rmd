@@ -27,6 +27,7 @@ library(foreign)
 library(plotly)
 library(patchwork)
 library(scales) # Disable Scientific Notation of ggplot2 Axis
+
 ```
 
 # Clean data
@@ -92,7 +93,12 @@ ggplot(data = dat2, aes(x = country, y = proportion_papm, fill = papm)) +
   coord_flip(ylim = c(0, 100)) +
   scale_fill_brewer(direction = 1, palette = "YlOrRd") + # YlOrRd
   labs(x = "Country", y = "Proportion (%)") +
-  theme(legend.position = "none")
+  theme(
+    legend.position = "none",
+    axis.text = element_text(size = 10),
+    axis.title = element_text(face = "bold", size = 12),
+    strip.text.x = element_text(face = "bold", size = 11)
+  )
 ```
 
 ### Education versus countries
@@ -142,7 +148,7 @@ func_obtainCI <- function(data, countryList) {
   allData <- list()
 
   for (ctry in countryList) {
-    m <- polr(formula = papm ~ gender + age + education + marital + occupation + live_area + mobile + internet, data = data %>% filter(country == ctry), Hess = TRUE)
+    m <- polr(formula = papm ~ gender + I(age / 10) + education + marital + occupation + live_area + mobile + internet, data = data %>% filter(country == ctry), Hess = TRUE)
 
     ci <- confint.default(m)
 
@@ -199,7 +205,7 @@ tmp1 <- tmpCI %>%
   separate(independent_var, c("count", "var"), sep = "\\.") %>%
   mutate(var = str_replace_all(var, c(
     "gender" = "gender.",
-    "age" = "age.Continuous",
+    `I\\(age/10\\)` = "age.Continuous",
     "education" = "education.",
     "marital" = "marital.",
     "occupation" = "occupation.",
@@ -207,15 +213,7 @@ tmp1 <- tmpCI %>%
     "mobile" = "mobile.",
     "internet" = "internet."
   ))) %>%
-  separate(var, c("var", "level"), "\\.") %>%
-  mutate(
-    OR = ifelse(OR >= 10000000, 150, OR),
-    OR = ifelse(OR >= 1000000, 100, OR),
-    `2.5 %` = ifelse(`2.5 %` >= 10000000, 150, `2.5 %`),
-    `2.5 %` = ifelse(`2.5 %` >= 1000000, 100, `2.5 %`),
-    `97.5 %` = ifelse(`97.5 %` >= 10000000, 150, `97.5 %`),
-    `97.5 %` = ifelse(`97.5 %` >= 1000000, 100, `97.5 %`)
-  )
+  separate(var, c("var", "level"), "\\.") 
 ```
 ### Gender
 ```{r}
@@ -226,12 +224,15 @@ p1 <- ggplot(data = tmp2, aes(x = level, y = OR, colour = country)) +
   geom_hline(yintercept = 1, colour = "black") +
   geom_errorbar(aes(ymin = `2.5 %`, ymax = `97.5 %`), position = position_dodge(0.3), width = 0.25) +
   geom_point(size = 2, position = position_dodge(0.3)) +
-  scale_y_continuous(trans = "log10") +
+  scale_y_continuous(trans = "log10", breaks = c(0.3, 1.0, 3), label = c(0.3, 1.0, 3)) +
   scale_colour_brewer(palette = "Set1") +
   labs(title = "Gender-Male", x = "") +
   theme(
     legend.position = "none",
-    panel.grid.major.x = element_blank()
+    panel.grid.major.x = element_blank(),
+    axis.text = element_text(size = 11),
+    axis.title = element_text(face = "bold", size = 12),
+    plot.title = element_text(face = "bold")
   )
 ```
 ### Age
@@ -244,14 +245,17 @@ p2 <- ggplot(data = tmp2, aes(x = level, y = OR, colour = country)) +
   geom_hline(yintercept = 1, colour = "black") +
   geom_errorbar(aes(ymin = `2.5 %`, ymax = `97.5 %`), position = position_dodge(0.3), width = 0.25) +
   geom_point(size = 2, position = position_dodge(0.3)) +
-  scale_y_continuous(trans = "log10") +
+  scale_y_continuous(trans = "log10", breaks = c(0.5, 1.0, 3, 5), label = c(0.5, 1.0, 3, 5)) +
   scale_colour_brewer(palette = "Set1") +
-  labs(title = "Age", x = "", y = "") +
+  labs(title = "Age (per 10 years)", x = "", y = "") +
   theme(
     legend.position = "none",
     axis.text.x = element_blank(),
     axis.ticks.x = element_blank(),
-    panel.grid.major.x = element_blank()
+    panel.grid.major.x = element_blank(),
+    axis.text = element_text(size = 11),
+    axis.title = element_text(face = "bold", size = 12),
+    plot.title = element_text(face = "bold")
   )
 ```
 ### Education
@@ -259,116 +263,175 @@ p2 <- ggplot(data = tmp2, aes(x = level, y = OR, colour = country)) +
 tmp2 <- tmp1 %>%
   filter(var == "education") %>%
   mutate(level = as.factor(level)) %>%
-  mutate(level = fct_relevel(level, "No formal education", "Primary school", "Secondary school", "Diploma"))
+  mutate(level = fct_relevel(level, "No formal education", "Primary school", "Secondary school", "Diploma")) %>%
+  mutate(
+    OR = ifelse(OR == 0, 0.01, OR),
+    `2.5 %` = ifelse(`2.5 %` == 0, 0.01, `2.5 %`),
+    `97.5 %` = ifelse(`97.5 %` == 0, 0.01, `97.5 %`)
+  )
 
 p3 <- ggplot(data = tmp2, aes(x = level, y = OR, colour = country)) +
   geom_hline(yintercept = 1, colour = "black") +
   geom_errorbar(aes(ymin = `2.5 %`, ymax = `97.5 %`), position = position_dodge(0.85), width = 1) +
   geom_point(size = 2, position = position_dodge(0.85)) +
   geom_vline(xintercept = seq(1.5, 3.5, by = 1), colour = "grey", linetype = "dashed") +
-  scale_y_continuous(trans = "log10") +
+  scale_y_continuous(trans = "log10", breaks = c(0.01, 0.1, 1.0, 10.0, 100.0), label = c(0, 0.1, 1.0, 10.0, 100.0)) +
   scale_colour_brewer(palette = "Set1") +
   labs(title = "Education-Degree", x = "", y = "") +
   theme(
     legend.position = "none",
     axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1),
-    panel.grid.major.x = element_blank()
+    panel.grid.major.x = element_blank(),
+    axis.text = element_text(size = 11),
+    axis.title = element_text(face = "bold", size = 12),
+    plot.title = element_text(face = "bold")
   )
 ```
 ### Marital
 ```{r}
 tmp2 <- tmp1 %>%
   filter(var == "marital") %>%
-  mutate(level = as.factor(level))
+  mutate(level = as.factor(level)) %>%
+  mutate(
+    OR = ifelse(OR == 0, 0.05, OR),
+    `2.5 %` = ifelse(`2.5 %` == 0, 0.05, `2.5 %`),
+    `97.5 %` = ifelse(`97.5 %` == 0, 0.05, `97.5 %`)
+  )
 
 p4 <- ggplot(data = tmp2, aes(x = level, y = OR, colour = country)) +
   geom_hline(yintercept = 1, colour = "black") +
   geom_errorbar(aes(ymin = `2.5 %`, ymax = `97.5 %`), position = position_dodge(0.6), width = 0.5) +
   geom_point(size = 2, position = position_dodge(0.6)) +
   geom_vline(xintercept = 1.5, colour = "grey", linetype = "dashed") +
-  scale_y_continuous(trans = "log10") +
+  scale_y_continuous(trans = "log10", breaks = c(0.05, 0.1, 1.0, 10.0), label = c(0, 0.1, 1.0, 10.0)) +
   scale_colour_brewer(palette = "Set1") +
   labs(title = "Marital-Never married", x = "", y = "") +
   theme(
     legend.position = "none",
     axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1),
-    panel.grid.major.x = element_blank()
+    panel.grid.major.x = element_blank(),
+    axis.text = element_text(size = 11),
+    axis.title = element_text(face = "bold", size = 12),
+    plot.title = element_text(face = "bold")
   )
 ```
 ### Occupation
 ```{r}
 tmp2 <- tmp1 %>%
   filter(var == "occupation") %>%
-  mutate(level = as.factor(level))
+  mutate(level = as.factor(level)) %>%
+  mutate(
+    OR = ifelse(OR == 0, 0.005, OR),
+    `2.5 %` = ifelse(`2.5 %` == 0, 0.005, `2.5 %`),
+    `97.5 %` = ifelse(`97.5 %` == 0, 0.005, `97.5 %`),
+    OR = ifelse(OR >= 1000000, 100, OR),
+    `2.5 %` = ifelse(`2.5 %` >= 1000000, 100, `2.5 %`),
+    `97.5 %` = ifelse(`97.5 %` >= 1000000, 100, `97.5 %`)
+  )
 
 p5 <- ggplot(data = tmp2, aes(x = level, y = OR, colour = country)) +
   geom_hline(yintercept = 1, colour = "black") +
   geom_errorbar(aes(ymin = `2.5 %`, ymax = `97.5 %`), position = position_dodge(0.85), width = 1) +
   geom_point(size = 2, position = position_dodge(0.85)) +
   geom_vline(xintercept = seq(1.5, 3.5, by = 1), colour = "grey", linetype = "dashed") +
-  scale_y_continuous(trans = "log10", labels = label_comma()) +
+  scale_y_continuous(trans = "log10", breaks = c(0.005, 0.01, 0.1, 1.0, 10.0, 100), label = c(0, 0.01, 0.1, 1.0, 10.0, "Inf")) +
   scale_colour_brewer(palette = "Set1") +
   labs(title = "Occupation-Employed", x = "") +
   theme(
     legend.position = "none",
     axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1),
-    panel.grid.major.x = element_blank()
+    panel.grid.major.x = element_blank(),
+    axis.text = element_text(size = 11),
+    axis.title = element_text(face = "bold", size = 12),
+    plot.title = element_text(face = "bold")
   )
 ```
 ### Live area
 ```{r}
 tmp2 <- tmp1 %>%
   filter(var == "live_area") %>%
-  mutate(level = as.factor(level))
+  mutate(level = as.factor(level))%>%
+  mutate(
+    OR = ifelse(OR == 0, 0.01, OR),
+    `2.5 %` = ifelse(`2.5 %` == 0, 0.01, `2.5 %`),
+    `97.5 %` = ifelse(`97.5 %` == 0, 0.01, `97.5 %`)
+  )
 
 p6 <- ggplot(data = tmp2, aes(x = level, y = OR, colour = country)) +
   geom_hline(yintercept = 1, colour = "black") +
   geom_errorbar(aes(ymin = `2.5 %`, ymax = `97.5 %`), position = position_dodge(0.7), width = 0.5) +
   geom_point(size = 2, position = position_dodge(0.7)) +
   geom_vline(xintercept = seq(1.5, 2.5, by = 1), colour = "grey", linetype = "dashed") +
-  scale_y_continuous(trans = "log10") +
+  scale_y_continuous(trans = "log10", breaks = c(0.01, 0.1, 1.0, 10.0), label = c(0,  0.1, 1.0, 10.0)) +
   scale_colour_brewer(palette = "Set1") +
   labs(title = "Live area-Urban", x = "", y = "") +
   theme(
     legend.position = "none",
     axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1),
-    panel.grid.major.x = element_blank()
+    panel.grid.major.x = element_blank(),
+    axis.text = element_text(size = 11),
+    axis.title = element_text(face = "bold", size = 12),
+    plot.title = element_text(face = "bold")
   )
 ```
 ### Mobile
 ```{r}
 tmp2 <- tmp1 %>%
   filter(var == "mobile") %>%
-  mutate(level = as.factor(level))
+  mutate(level = as.factor(level))%>%
+  mutate(
+    OR = ifelse(OR == 0, 0.01, OR),
+    `2.5 %` = ifelse(`2.5 %` == 0, 0.01, `2.5 %`),
+    `97.5 %` = ifelse(`97.5 %` == 0, 0.01, `97.5 %`)
+  )
 
 p7 <- ggplot(data = tmp2, aes(x = fct_inorder(level), y = OR, colour = country)) +
   geom_hline(yintercept = 1, colour = "black") +
   geom_errorbar(aes(ymin = `2.5 %`, ymax = `97.5 %`), position = position_dodge(0.6), width = 0.5) +
   geom_point(size = 2, position = position_dodge(0.6)) +
   geom_vline(xintercept = 1.5, colour = "grey", linetype = "dashed") +
-  scale_y_continuous(trans = "log10") +
+  scale_y_continuous(trans = "log10", breaks = c(0.01, 0.1, 1, 10, 100), label = c(0, 0.1, 1.0, 10.0, 100.0)) +
   scale_colour_brewer(palette = "Set1") +
   labs(title = "Mobile-Yes smart phone", x = "", y = "") +
   theme(
     legend.position = "none",
     axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1),
-    panel.grid.major.x = element_blank()
+    panel.grid.major.x = element_blank(),
+    axis.text = element_text(size = 11),
+    axis.title = element_text(face = "bold", size = 12),
+    plot.title = element_text(face = "bold")
   )
 ```
 ### Internet
 ```{r}
 tmp2 <- tmp1 %>%
   filter(var == "internet") %>%
-  mutate(level = as.factor(level))
+  mutate(level = as.factor(level)) %>%
+  mutate(
+    OR = ifelse(OR == 0, 0.005, OR),
+    `2.5 %` = ifelse(`2.5 %` == 0, 0.005, `2.5 %`),
+    `97.5 %` = ifelse(`97.5 %` == 0, 0.005, `97.5 %`),
+    OR = ifelse(OR >= 10000000, 500, OR),
+    `2.5 %` = ifelse(`2.5 %` >= 10000000, 500, `2.5 %`),
+    `97.5 %` = ifelse(`97.5 %` >= 10000000, 500, `97.5 %`)
+  )
+
 
 p8 <- ggplot(data = tmp2, aes(x = level, y = OR, colour = country)) +
   geom_hline(yintercept = 1, colour = "black") +
   geom_errorbar(aes(ymin = `2.5 %`, ymax = `97.5 %`), position = position_dodge(0.3), width = 0.25) +
   geom_point(size = 2, position = position_dodge(0.3)) +
-  scale_y_continuous(trans = "log10") +
+  scale_y_continuous(trans = "log10", breaks = c(0.1, 1.0, 10.0, 100.0, 500), label = c(0.1, 1.0, 10.0, 100.0, "Inf")) +
   scale_colour_brewer(palette = "Set1") +
   labs(title = "Internet-No", x = "", y = "") +
-  theme(panel.grid.major.x = element_blank())
+  theme(
+    panel.grid.major.x = element_blank(),
+    axis.text = element_text(size = 11),
+    axis.title = element_text(face = "bold", size = 12),
+    plot.title = element_text(face = "bold"),
+    legend.text = element_text(size = 11),
+    legend.title = element_text(size = 11, face = "bold")
+  )
 ```
 
 
@@ -435,8 +498,23 @@ tmpP1 <- tmpP %>%
 
 tmp2 <- tmp1 %>%
   select("country", "var", "level", "OR", "2.5 %", "97.5 %") %>%
-  mutate(`Pr(Chi)` = NA)
+  mutate(`Pr(Chi)` = NA)%>%
+   mutate(
+   OR = ifelse(OR >= 1000000, Inf, OR),
+   `2.5 %` = ifelse(`2.5 %` >= 1000000, Inf, `2.5 %`),
+   `97.5 %` = ifelse(`97.5 %` >= 1000000, Inf, `97.5 %`),
+   `2.5 %` = ifelse(`2.5 %` == 0, NA, `2.5 %`),
+   `97.5 %` = ifelse(`97.5 %` == 0, NA, `97.5 %`)
+ )
 combine <- bind_rows(tmpP1, tmp2) %>%
-  arrange(country, var)
-# writexl::write_xlsx(combine, "~/Downloads/20230828tmp.xlsx")
+  arrange(country, var) %>%
+  mutate(var = str_replace_all(var, "age", "age \\(per 10 year\\)"))
+
+
+htmlTable::htmlTable(combine, rnames = FALSE)
+# writexl::write_xlsx(combine, "~/Downloads/20230920tmp.xlsx")
+# 
+# 
+# write.table(combine1, file = "~/Downloads/bush_south.txt", sep = "/", quote = FALSE, row.names = F)
+## Per 10 years increase in age, the odds in level of awareness increases by a factor 2.3
 ```

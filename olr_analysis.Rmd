@@ -27,7 +27,7 @@ library(foreign)
 library(plotly)
 library(patchwork)
 library(scales) # Disable Scientific Notation of ggplot2 Axis
-
+library(stringr)
 ```
 
 # Clean data
@@ -80,7 +80,8 @@ dat2 <- dat %>%
   mutate(papm = factor(papm, labels = c(
     "Unaware", "Aware but unengaged", "Aware, engaged, \nbut undecided",
     "Aware, engaged, decided, \nbut yet to take action", "Aware, engaged, decided, \ntook action"
-  )))
+  ))) %>%
+  mutate(country = fct_relevel(country, "Zimbabwe", "Uganda", "Kenya", "Cameroon", "Philippines", "Nepal", "Indonesia", "India", "Bangladesh"))
 
 max <- dat2 %>%
   group_by(country) %>%
@@ -88,10 +89,10 @@ max <- dat2 %>%
 
 ggplot(data = dat2, aes(x = country, y = proportion_papm, fill = papm)) +
   geom_col(width = 0.5) +
-  geom_text(data = max, aes(label = proportion_papm)) +
+  geom_text(data = max, aes(label = proportion_papm), vjust = -1.6, hjust = 1) +
   facet_grid(~papm) +
   coord_flip(ylim = c(0, 100)) +
-  scale_fill_brewer(direction = 1, palette = "YlOrRd") + # YlOrRd
+  scale_fill_brewer(direction = 1, palette = "RdYlGn") +
   labs(x = "Country", y = "Proportion (%)") +
   theme(
     legend.position = "none",
@@ -213,7 +214,8 @@ tmp1 <- tmpCI %>%
     "mobile" = "mobile.",
     "internet" = "internet."
   ))) %>%
-  separate(var, c("var", "level"), "\\.") 
+  separate(var, c("var", "level"), "\\.") %>%
+  mutate(country = fct_relevel(country, "Bangladesh", "India", "Indonesia", "Nepal", "Philippines", "Cameroon", "Kenya", "Uganda", "Zimbabwe"))
 ```
 ### Gender
 ```{r}
@@ -226,7 +228,7 @@ p1 <- ggplot(data = tmp2, aes(x = level, y = OR, colour = country)) +
   geom_point(size = 2, position = position_dodge(0.3)) +
   scale_y_continuous(trans = "log10", breaks = c(0.3, 1.0, 3), label = c(0.3, 1.0, 3)) +
   scale_colour_brewer(palette = "Set1") +
-  labs(title = "Gender-Male", x = "") +
+  labs(title = "Gender-Male", x = "", y = "") +
   theme(
     legend.position = "none",
     panel.grid.major.x = element_blank(),
@@ -247,7 +249,7 @@ p2 <- ggplot(data = tmp2, aes(x = level, y = OR, colour = country)) +
   geom_point(size = 2, position = position_dodge(0.3)) +
   scale_y_continuous(trans = "log10", breaks = c(0.5, 1.0, 3, 5), label = c(0.5, 1.0, 3, 5)) +
   scale_colour_brewer(palette = "Set1") +
-  labs(title = "Age (per 10 years)", x = "", y = "") +
+  labs(title = "Age (per 10 years)", x = "", y = "Odds ratio") +
   theme(
     legend.position = "none",
     axis.text.x = element_blank(),
@@ -305,7 +307,7 @@ p4 <- ggplot(data = tmp2, aes(x = level, y = OR, colour = country)) +
   geom_vline(xintercept = 1.5, colour = "grey", linetype = "dashed") +
   scale_y_continuous(trans = "log10", breaks = c(0.05, 0.1, 1.0, 10.0), label = c(0, 0.1, 1.0, 10.0)) +
   scale_colour_brewer(palette = "Set1") +
-  labs(title = "Marital-Never married", x = "", y = "") +
+  labs(title = "Marital status-Never married", x = "", y = "") +
   theme(
     legend.position = "none",
     axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1),
@@ -336,7 +338,7 @@ p5 <- ggplot(data = tmp2, aes(x = level, y = OR, colour = country)) +
   geom_vline(xintercept = seq(1.5, 3.5, by = 1), colour = "grey", linetype = "dashed") +
   scale_y_continuous(trans = "log10", breaks = c(0.005, 0.01, 0.1, 1.0, 10.0, 100), label = c(0, 0.01, 0.1, 1.0, 10.0, "Inf")) +
   scale_colour_brewer(palette = "Set1") +
-  labs(title = "Occupation-Employed", x = "") +
+  labs(title = "Occupation-Employed", x = "", y = "Odds ratio") +
   theme(
     legend.position = "none",
     axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1),
@@ -350,7 +352,7 @@ p5 <- ggplot(data = tmp2, aes(x = level, y = OR, colour = country)) +
 ```{r}
 tmp2 <- tmp1 %>%
   filter(var == "live_area") %>%
-  mutate(level = as.factor(level))%>%
+  mutate(level = as.factor(level)) %>%
   mutate(
     OR = ifelse(OR == 0, 0.01, OR),
     `2.5 %` = ifelse(`2.5 %` == 0, 0.01, `2.5 %`),
@@ -362,7 +364,7 @@ p6 <- ggplot(data = tmp2, aes(x = level, y = OR, colour = country)) +
   geom_errorbar(aes(ymin = `2.5 %`, ymax = `97.5 %`), position = position_dodge(0.7), width = 0.5) +
   geom_point(size = 2, position = position_dodge(0.7)) +
   geom_vline(xintercept = seq(1.5, 2.5, by = 1), colour = "grey", linetype = "dashed") +
-  scale_y_continuous(trans = "log10", breaks = c(0.01, 0.1, 1.0, 10.0), label = c(0,  0.1, 1.0, 10.0)) +
+  scale_y_continuous(trans = "log10", breaks = c(0.01, 0.1, 1.0, 10.0), label = c(0, 0.1, 1.0, 10.0)) +
   scale_colour_brewer(palette = "Set1") +
   labs(title = "Live area-Urban", x = "", y = "") +
   theme(
@@ -378,7 +380,7 @@ p6 <- ggplot(data = tmp2, aes(x = level, y = OR, colour = country)) +
 ```{r}
 tmp2 <- tmp1 %>%
   filter(var == "mobile") %>%
-  mutate(level = as.factor(level))%>%
+  mutate(level = as.factor(level)) %>%
   mutate(
     OR = ifelse(OR == 0, 0.01, OR),
     `2.5 %` = ifelse(`2.5 %` == 0, 0.01, `2.5 %`),
@@ -392,7 +394,7 @@ p7 <- ggplot(data = tmp2, aes(x = fct_inorder(level), y = OR, colour = country))
   geom_vline(xintercept = 1.5, colour = "grey", linetype = "dashed") +
   scale_y_continuous(trans = "log10", breaks = c(0.01, 0.1, 1, 10, 100), label = c(0, 0.1, 1.0, 10.0, 100.0)) +
   scale_colour_brewer(palette = "Set1") +
-  labs(title = "Mobile-Yes smart phone", x = "", y = "") +
+  labs(title = "Mobile access-Yes smart phone", x = "", y = "") +
   theme(
     legend.position = "none",
     axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1),
@@ -423,7 +425,7 @@ p8 <- ggplot(data = tmp2, aes(x = level, y = OR, colour = country)) +
   geom_point(size = 2, position = position_dodge(0.3)) +
   scale_y_continuous(trans = "log10", breaks = c(0.1, 1.0, 10.0, 100.0, 500), label = c(0.1, 1.0, 10.0, 100.0, "Inf")) +
   scale_colour_brewer(palette = "Set1") +
-  labs(title = "Internet-No", x = "", y = "") +
+  labs(title = "Internet access-No", x = "", y = "") +
   theme(
     panel.grid.major.x = element_blank(),
     axis.text = element_text(size = 11),
@@ -436,7 +438,7 @@ p8 <- ggplot(data = tmp2, aes(x = level, y = OR, colour = country)) +
 
 
 ```{r, warning=FALSE, fig.width = 16, fig.height=8}
-(p1 + p2 + p3 + p4 + p5 + p6 + p7 + p8 +
+(p2 + p1 + p3 + p4 + p5 + p6 + p7 + p8 +
   plot_layout(ncol = 4, guides = "collect"))
 ```
 
@@ -498,14 +500,14 @@ tmpP1 <- tmpP %>%
 
 tmp2 <- tmp1 %>%
   select("country", "var", "level", "OR", "2.5 %", "97.5 %") %>%
-  mutate(`Pr(Chi)` = NA)%>%
-   mutate(
-   OR = ifelse(OR >= 1000000, Inf, OR),
-   `2.5 %` = ifelse(`2.5 %` >= 1000000, Inf, `2.5 %`),
-   `97.5 %` = ifelse(`97.5 %` >= 1000000, Inf, `97.5 %`),
-   `2.5 %` = ifelse(`2.5 %` == 0, NA, `2.5 %`),
-   `97.5 %` = ifelse(`97.5 %` == 0, NA, `97.5 %`)
- )
+  mutate(`Pr(Chi)` = NA) %>%
+  mutate(
+    OR = ifelse(OR >= 1000000, Inf, OR),
+    `2.5 %` = ifelse(`2.5 %` >= 1000000, Inf, `2.5 %`),
+    `97.5 %` = ifelse(`97.5 %` >= 1000000, Inf, `97.5 %`),
+    `2.5 %` = ifelse(`2.5 %` == 0, NA, `2.5 %`),
+    `97.5 %` = ifelse(`97.5 %` == 0, NA, `97.5 %`)
+  )
 combine <- bind_rows(tmpP1, tmp2) %>%
   arrange(country, var) %>%
   mutate(var = str_replace_all(var, "age", "age \\(per 10 year\\)"))
@@ -513,8 +515,63 @@ combine <- bind_rows(tmpP1, tmp2) %>%
 
 htmlTable::htmlTable(combine, rnames = FALSE)
 # writexl::write_xlsx(combine, "~/Downloads/20230920tmp.xlsx")
-# 
-# 
+#
+#
 # write.table(combine1, file = "~/Downloads/bush_south.txt", sep = "/", quote = FALSE, row.names = F)
 ## Per 10 years increase in age, the odds in level of awareness increases by a factor 2.3
+```
+
+## Make table for aapendix
+```{r}
+variableList <-c(quo(gender), quo(education), quo(marital), quo(occupation), quo(live_area), quo(mobile), quo(internet))
+func_table <- function(data) {
+  allData <- list()
+  for(i in seq_along(variableList)){
+      tmp1 <- data%>%  group_by(country, papm, !!variableList[[i]]) %>%
+        summarise(n = n())%>%
+        ungroup()%>%
+        group_by(country, !!variableList[[i]]) %>%
+        mutate(pro = round(n/sum(n)*100, 1))%>%
+        ungroup()%>%
+        pivot_wider(names_from = papm, values_from = c(n, pro))%>%rowwise() %>% 
+        mutate(sumVar = sum(c_across(starts_with("n")), na.rm = T))%>%
+        group_by(country)%>%
+        mutate(pro = round(sumVar/sum(sumVar)*100, 1))%>%
+        mutate("n(%)" = paste(sumVar, "(", pro, ")", sep = ""), 
+               "Unaware" = paste(n_1, "(", pro_1, ")", sep = ""), 
+               "Aware but unengaged"= paste(n_2, "(", pro_2, ")", sep = ""),
+               "Aware, engaged, \nbut undecided"= paste(n_3, "(", pro_3, ")", sep = ""),
+               "Aware, engaged, decided, \nbut yet to take action"= paste(n_4, "(", pro_4, ")", sep = ""),
+               "Aware, engaged, decided, \ntook action"= paste(n_5, "(", pro_5, ")", sep = ""))%>%
+        select(-c(3:14))%>%
+        rename("level" = 2 )%>%
+        mutate(variable = i)
+      allData[[i]] <- tmp1
+      }
+    
+  combinedData <- do.call(rbind, allData)
+  
+  return(combinedData)
+}
+
+
+table <- func_table(dat1)
+table1 <- table%>%
+  select(1,9,2:8)%>%
+  mutate(country = fct_relevel(country, "Bangladesh", "India", "Indonesia", "Nepal", "Philippines", "Cameroon", "Kenya", "Uganda", "Zimbabwe"))%>%
+arrange(country, variable)%>%
+  ungroup()%>%
+  mutate(across(`Unaware`:`Aware, engaged, decided, \ntook action`, str_replace_all, "NA", "0"))%>%
+  mutate(variable = dplyr::recode(variable, `1` =  "Gender" ,
+                                  `2` = "Education", `3` =  "Marital status",
+                                  `4` = "Occupation",
+                                  `5` = "Live_area",
+                                  `6` = "Mobile phone access",
+                                  `7` = "Internet access"  ))%>%
+  rename("Country" = country,
+         "Variable" = variable,
+         "Level"= level)
+
+
+htmlTable::htmlTable(table1, rnames = FALSE)
 ```
